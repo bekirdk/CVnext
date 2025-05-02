@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1065234208210",
+    "project_id": "cvnext-a666c",
+    "storage_bucket": "cvnext-a666c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1065234208210:android:6eb869b63943967451a40b",
+        "android_client_info": {
+          "package_name": "com.example.yeni_cv_uygulamasi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQwVNJ5Hi1kTT-1Nvk_B-hPGKr7ImwPLs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
