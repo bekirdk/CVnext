@@ -1,9 +1,13 @@
-import 'dart:typed_data';
+import 'dart:typed_data'; // PDF için
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:animated_bottom_navigation_bar/animated_bottom_navigation_bar.dart'; // Paket importu
+
+// Ekran Importları
 import 'package:yeni_cv_uygulamasi/screens/main_tabs/my_cvs_screen.dart';
 import 'package:yeni_cv_uygulamasi/screens/cv_editor_main_screen.dart';
 import 'package:yeni_cv_uygulamasi/screens/main_tabs/ai_review_screen.dart';
@@ -11,7 +15,6 @@ import 'package:yeni_cv_uygulamasi/screens/main_tabs/profile_screen.dart';
 import 'package:yeni_cv_uygulamasi/widgets/app_drawer.dart';
 import 'package:yeni_cv_uygulamasi/utils/pdf_generator.dart';
 import 'package:yeni_cv_uygulamasi/screens/pdf_preview_screen.dart';
-import 'package:provider/provider.dart';
 import 'package:yeni_cv_uygulamasi/providers/cv_provider.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -22,10 +25,17 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0; // 0: CVlerim, 1: Düzenle, 2: AI, 3: Profil
+  int _selectedIndex = 0;
   bool _isPdfLoading = false;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  final iconList = <IconData>[
+    Icons.dashboard_outlined,
+    Icons.edit_outlined,
+    Icons.auto_awesome_outlined,
+    Icons.person_outlined,
+  ];
 
   static const List<Widget> _screens = <Widget>[
     MyCvsScreen(),
@@ -35,13 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   void _onItemTapped(int index) {
-    if (index == 2) { // Ortadaki 'Ekle' butonu
-      _createNewCv();
-      return;
-    }
     setState(() {
-      // Diğer ikonlar için widget index'ini ayarla
-      _selectedIndex = index > 2 ? index - 1 : index; // 0, 1, 3->2, 4->3
+      _selectedIndex = index;
     });
   }
 
@@ -55,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // --- Diğer Fonksiyonlar (Değişiklik Yok) ---
   Future<void> _createNewCv() async {
     final String? userId = _auth.currentUser?.uid;
     if (userId == null || !mounted) { _showErrorSnackBar('Önce giriş yapmalısınız.'); return; }
@@ -90,18 +96,23 @@ class _HomeScreenState extends State<HomeScreen> {
    void _showErrorSnackBar(String message) { _showSnackBar(message, backgroundColor: Theme.of(context).colorScheme.error); }
    void _showSuccessSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.green); }
    void _showInfoSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.orangeAccent); }
+  // --- Diğer Fonksiyonlar Sonu ---
 
 
   @override
   Widget build(BuildContext context) {
-    // Aktif olan alt bar ikonunun index'ini hesapla (0, 1, _, 2, 3)
-    int bottomNavIndex = _selectedIndex >= 2 ? _selectedIndex + 1 : _selectedIndex;
+    // Tema renklerini alalım
+    final Color primaryColor = Theme.of(context).primaryColor;
+    final Color activeColor = primaryColor;
+    final Color inactiveColor = Theme.of(context).bottomNavigationBarTheme.unselectedItemColor ?? Colors.grey.shade500;
+    final Color fabBackgroundColor = primaryColor;
+    final Color barBackgroundColor = Theme.of(context).bottomNavigationBarTheme.backgroundColor ?? Theme.of(context).colorScheme.surface;
+    final Color fabIconColor = Theme.of(context).colorScheme.onPrimary;
+
 
     return Scaffold(
       appBar: AppBar(
-        // AppBar stilini temadan alıyor olmalı (main.dart'ta tanımlandı)
         title: Text(_getTitleForIndex(_selectedIndex)),
-        // flexibleSpace (arka plan resmi) kaldırıldı
         actions: [
            _isPdfLoading
            ? const Padding( padding: EdgeInsets.symmetric(horizontal: 16.0), child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))) )
@@ -109,29 +120,47 @@ class _HomeScreenState extends State<HomeScreen> {
            Builder( builder: (context) => IconButton( icon: const Icon(Icons.menu_rounded), tooltip: 'Menü', onPressed: () => Scaffold.of(context).openEndDrawer() ) ),
         ],
       ),
-      endDrawer: const AppDrawer(), // Yan menü
+      endDrawer: const AppDrawer(),
       body: Center(
-        child: _screens.elementAt(_selectedIndex), // Doğru ekranı gösterir
+        child: _screens.elementAt(_selectedIndex),
       ),
-      // BottomNavigationBar (kj.jpg stili - Tema'dan stil alır)
-      bottomNavigationBar: BottomNavigationBar(
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem( icon: Icon(Icons.dashboard_outlined), label: 'Dashboard', activeIcon: Icon(Icons.dashboard) ),
-          BottomNavigationBarItem( icon: Icon(Icons.edit_outlined), label: 'Düzenle', activeIcon: Icon(Icons.edit) ),
-          BottomNavigationBarItem( icon: Icon(Icons.add_circle_outline), label: 'Yeni Ekle', activeIcon: Icon(Icons.add_circle)),
-          BottomNavigationBarItem( icon: Icon(Icons.auto_awesome_outlined), label: 'AI', activeIcon: Icon(Icons.auto_awesome) ),
-          BottomNavigationBarItem( icon: Icon(Icons.person_outlined), label: 'Profil', activeIcon: Icon(Icons.person) ),
-        ],
-        currentIndex: bottomNavIndex,
+
+      floatingActionButton: FloatingActionButton(
+        shape: const CircleBorder(),
+        backgroundColor: fabBackgroundColor,
+        foregroundColor: fabIconColor,
+        onPressed: _createNewCv,
+        tooltip: 'Yeni CV Oluştur',
+        elevation: 2.0,
+        child: const Icon(Icons.add),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+
+      // *** AnimatedBottomNavigationBar (Hata Düzeltildi) ***
+      bottomNavigationBar: AnimatedBottomNavigationBar(
+        icons: iconList,
+        activeIndex: _selectedIndex,
+        gapLocation: GapLocation.center,
+        notchSmoothness: NotchSmoothness.softEdge,
+        leftCornerRadius: 32,
+        rightCornerRadius: 32,
         onTap: _onItemTapped,
-        // Stil özellikleri main.dart'taki ThemeData -> bottomNavigationBarTheme'den gelir
-        // Burada tekrar belirtmeye gerek yok ama istersen override edebilirsin:
-        // type: BottomNavigationBarType.fixed,
-        // backgroundColor: Colors.white,
-        // selectedItemColor: Theme.of(context).primaryColor,
-        // unselectedItemColor: Colors.grey.shade500,
-        // showSelectedLabels: false,
-        // showUnselectedLabels: false,
+
+        // Stil Ayarları
+        backgroundColor: barBackgroundColor,
+        activeColor: activeColor,
+        inactiveColor: inactiveColor,
+        iconSize: 24,
+        // height: 60, // Opsiyonel
+
+        // Gölge
+        shadow: BoxShadow(
+          color: Colors.black.withOpacity(0.15),
+          blurRadius: 8,
+        ),
+
+        // !! KALDIRILDI: animationDuration: const Duration(milliseconds: 300),
+        // !! KALDIRILDI: animationCurve: Curves.easeInOut,
       ),
     );
   }

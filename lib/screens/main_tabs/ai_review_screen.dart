@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:yeni_cv_uygulamasi/providers/cv_provider.dart';
 import 'package:yeni_cv_uygulamasi/utils/pdf_generator.dart';
 import 'package:yeni_cv_uygulamasi/screens/pdf_preview_screen.dart';
+import 'package:yeni_cv_uygulamasi/utils/api_key_provider.dart'; // API Key Helper
 
 class AiReviewScreen extends StatefulWidget {
   const AiReviewScreen({super.key});
@@ -29,8 +30,6 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
   String? _userId;
   String? _selectedCvId;
 
-  final String _apiKey = "YOUR_API_KEY"; // API Anahtarını kontrol et!
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -45,26 +44,32 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
   }
 
    bool _checkPrerequisites() {
-     if (_apiKey == "YOUR_API_KEY" || _apiKey.isEmpty) { _showErrorSnackBar('API Anahtarı ayarlanmamış!'); return false; }
      _selectedCvId = Provider.of<CvProvider>(context, listen: false).selectedCvId;
      _userId = _auth.currentUser?.uid;
      if (_userId == null || _selectedCvId == null) { _showInfoSnackBar('Lütfen önce bir CV seçin.'); return false; }
      return true;
   }
+
    void _handleDataError(String message){ if(mounted) { _showInfoSnackBar(message); } }
+
+   // *** HATA DÜZELTİLDİ: e.message.toString() kullanıldı ***
    void _handleAiError(Object e, String operation) {
        print("$operation Hatası: $e");
        if (mounted) {
          String displayError = "$operation sırasında bir hata oluştu.";
-          if (e is GenerativeAIException) { displayError += " Detay: ${e.message}"; }
+          // API anahtarı bulunamadı hatasını özel olarak yakala
+          if (e is AssertionError && e.message != null && e.message.toString().contains('API_KEY')) {
+             displayError = "AI servis anahtarı bulunamadı. Uygulama doğru şekilde başlatılmamış olabilir.";
+          } else if (e is GenerativeAIException) { displayError += " Detay: ${e.message}"; }
           else { displayError += " Detay: ${e.toString()}"; }
         setState(() { _errorMessage = displayError; });
        }
    }
+
    void _showSnackBar(String message, {Color backgroundColor = Colors.grey}) { if (!mounted) return; ScaffoldMessenger.of(context).removeCurrentSnackBar(); ScaffoldMessenger.of(context).showSnackBar( SnackBar(content: Text(message), backgroundColor: backgroundColor, duration: const Duration(seconds: 2)) ); }
-   void _showErrorSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.red); }
+   void _showErrorSnackBar(String message) { _showSnackBar(message, backgroundColor: Theme.of(context).colorScheme.error); }
    void _showSuccessSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.green); }
-   void _showInfoSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.orange); }
+   void _showInfoSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.orangeAccent); }
 
   Future<void> _analyzeCv() async {
     if (!_checkPrerequisites() || !mounted) return;
@@ -73,16 +78,15 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
     if (cvContent == null || cvContent.trim().length < 50) { _handleDataError("Analiz için yeterli CV verisi bulunamadı."); setState(() => _isLoadingReview = false ); return; }
     if (!mounted) { setState(() => _isLoadingReview = false ); return; }
 
-    final model = GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: _apiKey);
-    final prompt = """Bir uzman CV/İK danışmanı gibi davran. Aşağıdaki CV metnini analiz et. CV Metni: --- $cvContent --- Analiz sonucunda: 1.  Bu CV için 100 üzerinden bir puan ver. Puanlamayı yaparken ATS uyumluluğu, anahtar kelime kullanımı, okunabilirlik, etki gücü (ölçülebilir başarılar, güçlü fiiller), ve genel profesyonellik gibi kriterleri dikkate al. 2.  Detaylı geri bildirim ver. CV'nin güçlü ve zayıf yönlerini belirt. Her bölüm için (Kişisel Bilgiler, Deneyim, Eğitim, Yetenekler, Projeler vb.) somut ve uygulanabilir iyileştirme önerileri sun. Özellikle zayıf veya eksik görünen noktalara odaklan. Daha etkili ifadeler veya eklenmesi gereken bilgiler öner. Cevabını şu formatta ver: İlk satırda sadece "PUAN: [puan]/100" yazsın. (Örnek: PUAN: 75/100) Bir sonraki satırdan itibaren geri bildirimi ve önerileri yaz. Geri bildirimi Markdown formatında (* liste, **kalın** vb.) yazabilirsin.""";
-
     try {
+      final apiKey = ApiKeyProvider.getApiKey();
+      final model = GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apiKey);
+      final prompt = """Bir uzman CV/İK danışmanı gibi davran. Aşağıdaki CV metnini analiz et. CV Metni: --- $cvContent --- Analiz sonucunda: 1.  Bu CV için 100 üzerinden bir puan ver. Puanlamayı yaparken ATS uyumluluğu, anahtar kelime kullanımı, okunabilirlik, etki gücü (ölçülebilir başarılar, güçlü fiiller), ve genel profesyonellik gibi kriterleri dikkate al. 2.  Detaylı geri bildirim ver. CV'nin güçlü ve zayıf yönlerini belirt. Her bölüm için (Kişisel Bilgiler, Deneyim, Eğitim, Yetenekler, Projeler vb.) somut ve uygulanabilir iyileştirme önerileri sun. Özellikle zayıf veya eksik görünen noktalara odaklan. Daha etkili ifadeler veya eklenmesi gereken bilgiler öner. Cevabını şu formatta ver: İlk satırda sadece "PUAN: [puan]/100" yazsın. (Örnek: PUAN: 75/100) Bir sonraki satırdan itibaren geri bildirimi ve önerileri yaz. Geri bildirimi Markdown formatında (* liste, **kalın** vb.) yazabilirsin.""";
+
       final response = await model.generateContent([Content.text(prompt)]);
       final String? textResponse = response.text;
       if (textResponse != null && mounted) {
-         _parseReviewResponse(textResponse); // State'i günceller (_aiScore, _aiFeedback)
-
-         // Skoru Firestore'a Kaydet
+         _parseReviewResponse(textResponse);
          if (_userId != null && _selectedCvId != null && _aiScore != null && _aiScore != "Puan alınamadı") {
             try {
                 await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).set(
@@ -90,16 +94,17 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                 print("AI Skoru Firestore'a kaydedildi: $_aiScore");
              } catch (saveError) { print("AI Skoru kaydedilirken hata: $saveError"); }
          }
-         // --- Kaydetme sonu ---
-
       } else if (mounted) { setState(() { _errorMessage = "AI modelinden boş cevap alındı."; }); }
     } catch (e) { _handleAiError(e, "AI İnceleme"); }
     finally { if (mounted) { setState(() { _isLoadingReview = false; }); } }
   }
+
   void _parseReviewResponse(String textResponse){
      final lines = textResponse.split('\n'); String score = "Puan alınamadı"; String feedback = textResponse;
      if (lines.isNotEmpty && lines[0].toUpperCase().contains('PUAN:')) { RegExp scoreRegex = RegExp(r'(\d+)\s*/\s*100'); Match? match = scoreRegex.firstMatch(lines[0]); if (match != null && match.groupCount >= 1) { score = "${match.group(1)!}/100"; } else { score = lines[0].substring(lines[0].toUpperCase().indexOf('PUAN:') + 5).trim(); } feedback = lines.skip(1).join('\n').trim(); }
-     setState(() { _aiScore = score; _aiFeedback = feedback; });
+     if(mounted) {
+       setState(() { _aiScore = score; _aiFeedback = feedback; });
+     }
   }
 
   Future<void> _generateAndExportAiCv() async {
@@ -108,9 +113,12 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
     final String? cvContent = await _fetchAndFormatCvData();
      if (cvContent == null || cvContent.trim().length < 50) { _handleDataError("Profesyonel CV oluşturmak için yeterli veri bulunamadı."); setState(() => _isLoadingGenerate = false ); return; }
     if (!mounted) { setState(() => _isLoadingGenerate = false ); return; }
-     final model = GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: _apiKey);
-     final prompt = """Bir uzman CV yazarı gibi davran. Aşağıdaki ham CV bilgilerini kullanarak, baştan sona profesyonel, akıcı ve etkileyici bir dilde tam bir CV metni oluştur. Standart CV bölümlerini (Özet, İş Deneyimi, Eğitim, Yetenekler, Projeler) kullan. İş deneyimi ve projelerdeki sorumlulukları/başarıları madde işaretleri (*) veya kısa paragraflar halinde, güçlü eylem fiilleriyle (developed, managed, created, implemented vb.) yaz. Yetenekleri ilgili kategoriler altında grupla. Genel olarak okunabilirliği yüksek ve profesyonel bir ton kullan. Sadece oluşturulan CV metnini döndür, başına veya sonuna ek açıklama yazma. Ham Veriler: --- $cvContent --- Oluşturulacak CV Metni:""";
+
       try {
+        final apiKey = ApiKeyProvider.getApiKey();
+        final model = GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apiKey);
+        final prompt = """Bir uzman CV yazarı gibi davran. Aşağıdaki ham CV bilgilerini kullanarak, baştan sona profesyonel, akıcı ve etkileyici bir dilde tam bir CV metni oluştur. Standart CV bölümlerini (Özet, İş Deneyimi, Eğitim, Yetenekler, Projeler) kullan. İş deneyimi ve projelerdeki sorumlulukları/başarıları madde işaretleri (*) veya kısa paragraflar halinde, güçlü eylem fiilleriyle (developed, managed, created, implemented vb.) yaz. Yetenekleri ilgili kategoriler altında grupla. Genel olarak okunabilirliği yüksek ve profesyonel bir ton kullan. Sadece oluşturulan CV metnini döndür, başına veya sonuna ek açıklama yazma. Ham Veriler: --- $cvContent --- Oluşturulacak CV Metni:""";
+
         final response = await model.generateContent([Content.text(prompt)]);
         final String? generatedCvText = response.text;
         if (generatedCvText != null && generatedCvText.trim().isNotEmpty && mounted) {
@@ -127,15 +135,19 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
     StringBuffer cvText = StringBuffer();
     try {
        final cvDocSnapshot = await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).get();
-       if (!cvDocSnapshot.exists) return '';
+       if (!cvDocSnapshot.exists) {
+         print("CV dokümanı bulunamadı: $_selectedCvId");
+         return '';
+       }
        final cvData = cvDocSnapshot.data() ?? {};
-       final personalInfo = cvData['personalInfo'] as Map<String, dynamic>? ?? {}; if(personalInfo.isNotEmpty){ /* ... */ }
-       final summary = cvData['summary'] as String? ?? ''; if (summary.isNotEmpty) { cvText.writeln("## Özet\n$summary\n"); }
-       final experiences = cvData['experiences'] as List<dynamic>? ?? []; if (experiences.isNotEmpty) { cvText.writeln("## İş Deneyimi"); for (var expMap in experiences) { final exp = Map<String, dynamic>.from(expMap); /* ... */ } cvText.writeln(); }
-       final educationList = cvData['education'] as List<dynamic>? ?? []; if (educationList.isNotEmpty) { cvText.writeln("## Eğitim Bilgileri"); for (var eduMap in educationList) { final edu = Map<String, dynamic>.from(eduMap); /* ... */ } cvText.writeln(); }
-       final skills = cvData['skills'] as Map<String, dynamic>? ?? {}; if (skills.isNotEmpty) { cvText.writeln("## Yetenekler"); skills.forEach((cat, list) { if (list is List && list.isNotEmpty) { cvText.writeln("- ${cat[0].toUpperCase()}${cat.substring(1)}: ${List<String>.from(list).join(', ')}"); } }); cvText.writeln(); }
-       final projects = cvData['projects'] as List<dynamic>? ?? []; if (projects.isNotEmpty) { cvText.writeln("## Projeler"); for (var projMap in projects) { final proj = Map<String, dynamic>.from(projMap); /* ... */ } cvText.writeln(); }
-    } catch (e) { print("AI için veri çekme hatası: $e"); _showErrorSnackBar("CV verisi çekilirken hata oluştu."); return null; }
+       final personalInfo = cvData['personalInfo'] as Map<String, dynamic>? ?? {};
+       if (personalInfo.isNotEmpty) { cvText.writeln("## Kişisel Bilgiler"); if (personalInfo['fullName'] != null) cvText.writeln("- Ad Soyad: ${personalInfo['fullName']}"); if (personalInfo['jobTitle'] != null) cvText.writeln("- Unvan: ${personalInfo['jobTitle']}"); if (personalInfo['email'] != null) cvText.writeln("- Eposta: ${personalInfo['email']}"); if (personalInfo['phone'] != null) cvText.writeln("- Telefon: ${personalInfo['phone']}"); if (personalInfo['address'] != null) cvText.writeln("- Konum: ${personalInfo['address']}"); if (personalInfo['linkedinUrl'] != null) cvText.writeln("- LinkedIn: ${personalInfo['linkedinUrl']}"); if (personalInfo['portfolioUrl'] != null) cvText.writeln("- Portfolyo: ${personalInfo['portfolioUrl']}"); cvText.writeln(); }
+       final summary = cvData['summary'] as String? ?? ''; if (summary.isNotEmpty) { cvText.writeln("## Özet/Kariyer Hedefi\n$summary\n"); }
+       final experiences = cvData['experiences'] as List<dynamic>? ?? []; if (experiences.isNotEmpty) { cvText.writeln("## İş Deneyimi"); for (var expMap in experiences) { final exp = Map<String, dynamic>.from(expMap); cvText.writeln("- ${exp['jobTitle'] ?? ''} / ${exp['companyName'] ?? ''} (${exp['location'] ?? ''})"); final endDate = (exp['isCurrentJob'] ?? false) ? 'Halen' : (exp['endDate'] ?? ''); cvText.writeln("  (${exp['startDate'] ?? ''} - $endDate)"); if (exp['description'] != null && exp['description'].isNotEmpty) cvText.writeln("  Açıklama: ${exp['description']}"); cvText.writeln(); } cvText.writeln(); }
+       final educationList = cvData['education'] as List<dynamic>? ?? []; if (educationList.isNotEmpty) { cvText.writeln("## Eğitim Bilgileri"); for (var eduMap in educationList) { final edu = Map<String, dynamic>.from(eduMap); cvText.writeln("- ${edu['degree'] ?? ''} - ${edu['institutionName'] ?? ''} (${edu['fieldOfStudy'] ?? ''})"); final endDate = (edu['isCurrent'] ?? false) ? 'Devam Ediyor' : (edu['endDate'] ?? ''); cvText.writeln("  (${edu['startDate'] ?? ''} - $endDate)"); if (edu['description'] != null && edu['description'].isNotEmpty) cvText.writeln("  Notlar: ${edu['description']}"); cvText.writeln(); } cvText.writeln(); }
+       final skills = cvData['skills'] as Map<String, dynamic>? ?? {}; if (skills.isNotEmpty) { cvText.writeln("## Yetenekler"); skills.forEach((cat, list) { if (list is List && list.isNotEmpty) { String categoryName = cat.replaceAllMapped(RegExp(r'[A-Z]'), (match) => ' ${match.group(0)}').trim(); categoryName = categoryName[0].toUpperCase() + categoryName.substring(1); cvText.writeln("- $categoryName: ${List<String>.from(list).join(', ')}"); } }); cvText.writeln(); }
+       final projects = cvData['projects'] as List<dynamic>? ?? []; if (projects.isNotEmpty) { cvText.writeln("## Projeler"); for (var projMap in projects) { final proj = Map<String, dynamic>.from(projMap); cvText.writeln("- ${proj['projectName'] ?? ''}"); if (proj['description'] != null && proj['description'].isNotEmpty) cvText.writeln("  Açıklama: ${proj['description']}"); if (proj['technologies'] is List && proj['technologies'].isNotEmpty) cvText.writeln("  Teknolojiler: ${List<String>.from(proj['technologies']).join(', ')}"); if (proj['link'] != null && proj['link'].isNotEmpty) cvText.writeln("  Link: ${proj['link']}"); cvText.writeln(); } cvText.writeln(); }
+    } catch (e) { print("AI için veri çekme hatası: $e"); if(mounted) _showErrorSnackBar("CV verisi çekilirken hata oluştu."); return null; }
     return cvText.toString();
   }
 
@@ -160,10 +172,8 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                 ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
                 : ElevatedButton.icon( icon: const Icon(Icons.analytics_outlined), label: const Text('İncele ve Puanla'), onPressed: _isLoadingGenerate ? null : _analyzeCv, style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)) ),
                  const SizedBox(height: 12),
-                 if (_aiScore != null || _aiFeedback != null) Container(
-                    padding: const EdgeInsets.all(16), decoration: BoxDecoration( color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                    child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ if (_aiScore != null) SelectableText( 'AI Puanı: $_aiScore', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor) ), if (_aiScore != null && _aiFeedback != null) const Divider(height: 24, thickness: 1), if (_aiFeedback != null) Text( 'AI Geri Bildirimi ve Öneriler:', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600) ), if (_aiFeedback != null) const SizedBox(height: 8), if (_aiFeedback != null) SelectableText(_aiFeedback!) ]) ),
-                 if (_errorMessage != null && !_isLoadingReview && !_isLoadingGenerate) Padding( padding: const EdgeInsets.only(top: 16.0), child: Text(_errorMessage!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center) ),
+                 if (_aiScore != null || _aiFeedback != null) Container( padding: const EdgeInsets.all(16), margin: const EdgeInsets.only(top: 10, bottom: 10), decoration: BoxDecoration( color: Theme.of(context).colorScheme.surface.withOpacity(0.5), borderRadius: BorderRadius.circular(8), border: Border.all(color: Theme.of(context).dividerColor) ), child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ if (_aiScore != null) SelectableText( 'AI Puanı: $_aiScore', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor) ), if (_aiScore != null && _aiFeedback != null) const Divider(height: 24, thickness: 1), if (_aiFeedback != null) Text( 'AI Geri Bildirimi ve Öneriler:', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600) ), if (_aiFeedback != null) const SizedBox(height: 8), if (_aiFeedback != null) SelectableText(_aiFeedback!) ]) ),
+                 if (_errorMessage != null && !_isLoadingReview && !_isLoadingGenerate) Padding( padding: const EdgeInsets.only(top: 16.0), child: Text(_errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error), textAlign: TextAlign.center) ),
                  const Divider(height: 40, thickness: 1),
                  Icon(Icons.auto_fix_high, size: 50, color: Theme.of(context).primaryColor),
                  const SizedBox(height: 16),
