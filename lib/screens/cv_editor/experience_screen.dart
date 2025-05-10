@@ -26,7 +26,6 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
   @override
   void initState() {
     super.initState();
-    // İlk yükleme didChangeDependencies'de tetiklenecek
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadDataBasedOnProvider();
     });
@@ -68,7 +67,6 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
     if (_userId == null || _selectedCvId == null) {
       setState(() { _experiences = []; _isLoading = false; });
       print("Deneyim yüklenemedi: Kullanıcı veya CV seçili değil.");
-      // Gerekirse _handleMissingCvSelection çağrılabilir ama didChangeDependencies hallediyor olmalı
       return;
     }
     setState(() { _isLoading = true; });
@@ -79,17 +77,10 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
         if (cvDocSnapshot.exists && (cvDocSnapshot.data() as Map).containsKey('experiences')) {
           final List<dynamic> rawList = cvDocSnapshot.get('experiences');
           loadedExperiences = List<Map<String, dynamic>>.from( rawList.map((item) => Map<String, dynamic>.from(item as Map)) );
-          // Deneyimleri sırala (varsa 'startDate' veya 'addedAt' göre)
-          // Örnek: Başlangıç tarihine göre (string olduğu için basit sıralama, daha iyisi Timestamp kullanmak)
           loadedExperiences.sort((a, b) {
-             // Daha iyi sıralama için tarihleri parse etmek gerekebilir
-             String dateA = a['startDate'] ?? '';
-             String dateB = b['startDate'] ?? '';
-             // Veya 'addedAt' Timestamp'ına göre:
-             // Timestamp tsA = a['addedAt'] ?? Timestamp(0,0);
-             // Timestamp tsB = b['addedAt'] ?? Timestamp(0,0);
-             // return tsB.compareTo(tsA); // En yeni başa
-             return dateB.compareTo(dateA); // Basit string karşılaştırması (hatalı olabilir)
+            Timestamp tsA = a['addedAt'] is Timestamp ? a['addedAt'] : Timestamp(0,0);
+            Timestamp tsB = b['addedAt'] is Timestamp ? b['addedAt'] : Timestamp(0,0);
+            return tsB.compareTo(tsA); // En yeni eklenen başa gelsin
           });
         }
         setState(() { _experiences = loadedExperiences; });
@@ -112,19 +103,18 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
     if (_userId == null || _selectedCvId == null || !mounted) return;
     setState(() { _isLoading = true; });
     try {
-      newData['id'] = _firestore.collection('_').doc().id; // Benzersiz ID
-      newData['addedAt'] = FieldValue.serverTimestamp(); // Ekleme zamanı
+      newData['id'] = _firestore.collection('_').doc().id;
+      newData['addedAt'] = FieldValue.serverTimestamp();
       await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).update({
             'experiences': FieldValue.arrayUnion([newData]), 'lastUpdated': FieldValue.serverTimestamp() });
       if (mounted) {
-        await _loadExperiences(); // Ekleme sonrası listeyi yenile
+        await _loadExperiences();
         _showSuccessSnackBar('Deneyim başarıyla eklendi.');
       }
     } catch (e) { print("Deneyim eklenirken Firestore Hatası: $e"); _showErrorSnackBar('Deneyim eklenirken bir hata oluştu.'); }
     finally { if (mounted) { setState(() { _isLoading = false; }); } }
   }
 
-  // *** YENİ/GÜNCELLENMİŞ Fonksiyon: Düzenlemeye Git ***
   void _navigateToEditExperience(Map<String, dynamic> experienceData) {
     if (_userId == null || _selectedCvId == null || !mounted) {
       _showErrorSnackBar('İşlem için önce CV seçmelisiniz.');
@@ -145,49 +135,82 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
         ),
       ),
     ).then((result) {
-      // Düzenleme ekranından geri dönüldüğünde
       if (result != null && result.containsKey('data') && result.containsKey('experienceId') && mounted) {
         final String returnedExperienceId = result['experienceId'];
         final Map<String, dynamic> updatedData = result['data'];
-
-        // Orijinal (eski) veriyi bulmak için lokal listeyi kullanabiliriz
-        // VEYA Firestore'dan çekip sonra güncelleme yapabiliriz.
-        // Şimdilik eski veriyi de fonksiyona gönderelim (opsiyonel)
-        final Map<String, dynamic>? oldData = _experiences.firstWhere(
-              (exp) => exp['id'] == returnedExperienceId,
-              orElse: () => experienceData // Bulunamazsa ilk gönderilen veriyi kullan (nadiren olmalı)
-           );
-
-        _updateExperienceInFirestore(returnedExperienceId, updatedData, oldData); // Yeni fonksiyonu çağır
+        
+        // Düzenleme işlemi için orijinal 'oldData'yı bulmamız gerekiyor.
+        // Bu 'oldData', Firestore'dan silinecek olan tam eşleşen haritadır.
+        // 'experienceData' (parametre olarak gelen) ve 'updatedData' (dönen) arasında
+        // 'addedAt' gibi alanlar farklılık gösterebilir veya eksik olabilir.
+        // En güvenli yol, 'experienceId' kullanarak _experiences listesinden doğru 'oldData'yı bulmaktır.
+        Map<String, dynamic>? oldData;
+        try {
+           oldData = _experiences.firstWhere((exp) => exp['id'] == returnedExperienceId);
+        } catch (e) {
+           print("Eski veri bulunamadı: $e");
+           // Eğer lokal listede bulunamazsa, experienceData'yı (ListTile'dan gelen) kullanmayı deneyebiliriz,
+           // ancak bu, 'addedAt' gibi alanların eşleşmesini garanti etmez.
+           // En ideali, _loadExperiences sonrası _experiences listesinin güncel olmasıdır.
+           oldData = experienceData; // Fallback, riskli olabilir
+        }
+        
+        if (oldData != null) {
+            _updateExperienceInFirestore(returnedExperienceId, updatedData, oldData);
+        } else {
+            _showErrorSnackBar('Güncellenecek orijinal deneyim verisi bulunamadı.');
+            _loadExperiences(); // Listeyi her ihtimale karşı yenile
+        }
       }
     });
   }
 
-  // *** YENİ Fonksiyon: Firestore'da Güncelleme ***
-  Future<void> _updateExperienceInFirestore(String experienceId, Map<String, dynamic> updatedData, Map<String, dynamic>? oldData) async {
-     if (_userId == null || _selectedCvId == null || !mounted) return;
-     if (oldData == null) { _showErrorSnackBar('Güncellenecek eski veri bulunamadı!'); return; }
+  // *** DOLDURULMUŞ Fonksiyon: Firestore'da Güncelleme ***
+  Future<void> _updateExperienceInFirestore(String experienceId, Map<String, dynamic> updatedData, Map<String, dynamic> oldData) async {
+     if (_userId == null || _selectedCvId == null || !mounted) {
+       _showErrorSnackBar('Güncelleme için kullanıcı veya CV seçili değil.');
+       return;
+     }
+
+     // 'id' ve 'addedAt' alanlarının updatedData içinde olduğundan emin olalım
+     // Eğer AddEditExperienceScreen'den bu alanlar gelmiyorsa, oldData'dan alıp updatedData'ya ekleyebiliriz.
+     if (!updatedData.containsKey('id') && oldData.containsKey('id')) {
+       updatedData['id'] = oldData['id'];
+     }
+     if (!updatedData.containsKey('addedAt') && oldData.containsKey('addedAt')) {
+       updatedData['addedAt'] = oldData['addedAt'];
+     }
+     
+     // oldData'nın da id ve addedAt alanlarını içerdiğinden emin olalım.
+     // arrayRemove için tam eşleşme önemlidir.
+     // Eğer AddEditExperienceScreen sadece form alanlarını döndürüyorsa,
+     // oldData'yı (ListTile'dan gelen) kullanmak daha doğru olabilir.
 
      setState(() => _isLoading = true);
      try {
-         // Önce eski veriyi sil, sonra yeni veriyi ekle (arrayUpdate olmadığı için)
-         await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).update({
-           'experiences': FieldValue.arrayRemove([oldData]),
-         });
-         // Not: 'id' ve 'addedAt' alanlarının güncellenen veride korunmuş olması önemli
-         await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).update({
-           'experiences': FieldValue.arrayUnion([updatedData]),
-           'lastUpdated': FieldValue.serverTimestamp(),
-         });
+        // Firestore transaction veya batched write kullanmak daha güvenli olurdu.
+        // Şimdilik iki ayrı update ile yapıyoruz:
+        await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).update({
+          'experiences': FieldValue.arrayRemove([oldData]), // Eski objeyi kaldır
+        });
 
-         if (mounted) {
-           await _loadExperiences(); // Listeyi yenile
-           _showSuccessSnackBar('Deneyim başarıyla güncellendi.');
-         }
+        await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).update({
+          'experiences': FieldValue.arrayUnion([updatedData]), // Yeni objeyi ekle
+          'lastUpdated': FieldValue.serverTimestamp(),
+        });
+
+        if (mounted) {
+          await _loadExperiences(); // Listeyi yenile
+          _showSuccessSnackBar('Deneyim başarıyla güncellendi.');
+        }
      } catch (e) {
        print("Deneyim güncellenirken Firestore Hatası: $e");
        _showErrorSnackBar('Deneyim güncellenirken bir hata oluştu.');
-       // Hata durumunda eski veriyi geri eklemeyi deneyebiliriz (karmaşıklaşır)
+       // Hata durumunda, silinen eski veriyi geri eklemeyi deneyebiliriz,
+       // ancak bu, işlemleri daha karmaşık hale getirir. Şimdilik sadece hata mesajı veriyoruz.
+       if(mounted) {
+          await _loadExperiences(); // Hata olsa bile listeyi senkronize etmeye çalış
+       }
      } finally {
        if (mounted) setState(() => _isLoading = false);
      }
@@ -211,10 +234,6 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
     if (confirmDelete != true) return;
     setState(() => _isLoading = true);
     try {
-      // Silinecek öğenin Firestore'daki tam halini bulmak önemli (timestamp vb. için)
-      // Ancak ID'si varsa ve ID'ye göre silme yapıyorsak, arrayRemove'a sadece ID'li map vermek yeterli olabilir.
-      // Emin olmak için, silmeden önce Firestore'dan tekrar okuyup tam eşleşen map'i bulmak daha güvenli olabilir.
-      // Şimdilik elimizdeki Map ile deniyoruz:
        await _firestore.collection('users').doc(_userId).collection('cvs').doc(_selectedCvId).update({
              'experiences': FieldValue.arrayRemove([experienceToDelete]), 'lastUpdated': FieldValue.serverTimestamp() });
         if(mounted){
@@ -271,7 +290,7 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
                 ),
               )
             : ListView.builder(
-                padding: const EdgeInsets.only(bottom: 80.0),
+                padding: const EdgeInsets.only(bottom: 80.0), // FAB için boşluk
                 itemCount: _experiences.length,
                 itemBuilder: (context, index) {
                   final experience = _experiences[index];
@@ -302,16 +321,15 @@ class _ExperienceScreenState extends State<ExperienceScreen> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                           // *** GÜNCELLENDİ: Edit IconButton ***
                            IconButton(
-                              icon: Icon(Icons.edit_outlined, size: 20, color: Theme.of(context).primaryColor), // Daha belirgin ikon
+                              icon: Icon(Icons.edit_outlined, size: 20, color: Theme.of(context).primaryColor),
                               tooltip: 'Düzenle',
-                              onPressed: () => _navigateToEditExperience(experience) // Artık düzenlemeye gidiyor
+                              onPressed: () => _navigateToEditExperience(experience)
                            ),
                            IconButton( icon: Icon(Icons.delete_outline, size: 20, color: Colors.red.shade700), tooltip: 'Sil', onPressed: () => _deleteExperience(experience) ),
                         ],
                       ),
-                      onTap: () => _navigateToEditExperience(experience), // Tıklayınca da düzenlemeye git
+                      onTap: () => _navigateToEditExperience(experience),
                     ),
                   );
                 },

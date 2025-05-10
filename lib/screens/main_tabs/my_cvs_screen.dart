@@ -5,7 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:yeni_cv_uygulamasi/providers/cv_provider.dart';
-import 'package:collection/collection.dart';
+import 'package:collection/collection.dart'; // firstWhereOrNull için
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
 class MyCvsScreen extends StatefulWidget {
   const MyCvsScreen({super.key});
@@ -21,74 +22,129 @@ class _MyCvsScreenState extends State<MyCvsScreen> {
   List<QueryDocumentSnapshot> _cvDocs = [];
   bool _isLoading = true;
   String? _userId;
-  String? _selectedCvId;
+  String? _selectedCvId; 
   Map<String, dynamic>? _selectedCvData;
 
   @override
   void initState() {
     super.initState();
+    _userId = _auth.currentUser?.uid;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-       _loadDataBasedOnProvider();
+      if (mounted) {
+        _loadDataBasedOnProvider();
+      }
     });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final cvProvider = Provider.of<CvProvider>(context);
-    final newSelectedCvId = cvProvider.selectedCvId;
-    if (newSelectedCvId != _selectedCvId) {
-       _selectedCvId = newSelectedCvId;
-       _userId = _auth.currentUser?.uid;
-       print("MyCvsScreen: Reloading data for CV ID: $_selectedCvId");
-       _loadCvs();
-    } else if (_isLoading && _selectedCvId == null){
-       _handleMissingCvSelection();
+    final cvProvider = Provider.of<CvProvider>(context); 
+    final newSelectedCvIdFromProvider = cvProvider.selectedCvId;
+
+    if (newSelectedCvIdFromProvider != _selectedCvId) {
+      setState(() { 
+        _selectedCvId = newSelectedCvIdFromProvider;
+        _userId = _auth.currentUser?.uid; 
+        print("MyCvsScreen (didChangeDependencies): CV ID Değişti (Provider'dan): $_selectedCvId");
+        _isLoading = true; 
+      });
+      _loadCvs();
+    } else if (_isLoading && _selectedCvId == null && _userId != null) {
+      // Bu durum _loadDataBasedOnProvider ile zaten ele alınmış olabilir.
+    } else if (_isLoading && _userId == null){
+      _handleMissingUserSession();
     }
   }
 
   void _loadDataBasedOnProvider() {
-     final cvProvider = Provider.of<CvProvider>(context, listen: false);
-     _selectedCvId = cvProvider.selectedCvId;
-     _userId = _auth.currentUser?.uid;
-     _loadCvs();
+    final cvProvider = Provider.of<CvProvider>(context, listen: false);
+    setState(() { 
+      _selectedCvId = cvProvider.selectedCvId;
+      _userId = _auth.currentUser?.uid;
+      _isLoading = true; 
+    });
+    if (_userId == null) {
+      _handleMissingUserSession();
+      return;
+    }
+    _loadCvs();
+  }
+
+  void _handleMissingUserSession(){
+     if(mounted) {
+       setState(() => _isLoading = false);
+       _showInfoSnackBar("CV'leri görmek için lütfen giriş yapın."); // Düzeltilmiş string
+     }
   }
 
   void _handleMissingCvSelection(){
-     if(mounted) setState(() => _isLoading = false);
-     WidgetsBinding.instance.addPostFrameCallback((_) {
-         if(mounted) { _showInfoSnackBar('Lütfen önce bir CV seçin veya oluşturun.'); }
-       });
+     if(mounted) {
+       setState(() => _isLoading = false);
+       _showInfoSnackBar('Lütfen önce bir CV seçin veya oluşturun.');
+     }
   }
 
   Future<void> _loadCvs() async {
-    if (_userId == null || !mounted) { if (mounted) setState(() { _isLoading = false; _cvDocs = []; _selectedCvData = null; }); return; }
-    if (!_isLoading) setState(() { _isLoading = true; });
-
-    Map<String, dynamic>? newSelectedCvData;
+    if (!mounted) return;
+    if (_userId == null) {
+      setState(() { _isLoading = false; _cvDocs = []; _selectedCvData = null; });
+      print("MyCvsScreen: Kullanıcı ID'si null, CV'ler yüklenemiyor.");
+      return;
+    }
+    
+    Map<String, dynamic>? newSelectedCvDataLocal;
     List<QueryDocumentSnapshot> newCvDocs = [];
 
     try {
+      print("MyCvsScreen: _loadCvs başlatılıyor. UserID: $_userId, SelectedCvID (lokal): $_selectedCvId");
       final querySnapshot = await _firestore.collection('users').doc(_userId!).collection('cvs').get();
-      if (!mounted) return; // Check after await
+      if (!mounted) return;
       newCvDocs = querySnapshot.docs;
-      newCvDocs.sort((a, b) { Timestamp? tsA = (a.data() as Map<String, dynamic>?)?['lastUpdated']; Timestamp? tsB = (b.data() as Map<String, dynamic>?)?['lastUpdated']; return (tsB ?? Timestamp(0,0)).compareTo(tsA ?? Timestamp(0,0)); });
 
-      // Get current selected ID from provider again inside async function
-      _selectedCvId = Provider.of<CvProvider>(context, listen: false).selectedCvId;
+      newCvDocs.sort((a, b) {
+        dynamic dataA = a.data();
+        Timestamp tsA = Timestamp(0, 0);
+        if (dataA is Map<String, dynamic> && dataA['lastUpdated'] is Timestamp) { tsA = dataA['lastUpdated']; }
+        else if (dataA is Map<String, dynamic> && dataA['createdAt'] is Timestamp) { tsA = dataA['createdAt']; }
 
-      if (_selectedCvId != null) {
-         QueryDocumentSnapshot<Object?>? selectedDocFromList = newCvDocs.firstWhereOrNull((doc) => doc.id == _selectedCvId);
+        dynamic dataB = b.data();
+        Timestamp tsB = Timestamp(0, 0);
+        if (dataB is Map<String, dynamic> && dataB['lastUpdated'] is Timestamp) { tsB = dataB['lastUpdated']; }
+        else if (dataB is Map<String, dynamic> && dataB['createdAt'] is Timestamp) { tsB = dataB['createdAt']; }
+        return tsB.compareTo(tsA);
+      });
+
+      final currentSelectedCvIdFromProvider = Provider.of<CvProvider>(context, listen: false).selectedCvId;
+      print("MyCvsScreen: _loadCvs içinde Provider'dan alınan CV ID: $currentSelectedCvIdFromProvider");
+
+      if (currentSelectedCvIdFromProvider != null) {
+         QueryDocumentSnapshot<Object?>? selectedDocFromList = newCvDocs.firstWhereOrNull((doc) => doc.id == currentSelectedCvIdFromProvider);
          if (selectedDocFromList != null) {
-             newSelectedCvData = selectedDocFromList.data() as Map<String, dynamic>?;
+             newSelectedCvDataLocal = selectedDocFromList.data() as Map<String, dynamic>?;
+             print("MyCvsScreen: Seçili CV verisi yüklendi: ${newSelectedCvDataLocal?['cvName']}");
          } else {
-             print("Selected CV document ($_selectedCvId) not found in loaded list, clearing selection.");
-             _selectedCvId = null;
-             WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) Provider.of<CvProvider>(context, listen: false).clearSelection(); });
+             print("MyCvsScreen: Seçili CV ($currentSelectedCvIdFromProvider) listede bulunamadı. Provider'da seçim temizleniyor.");
+             newSelectedCvDataLocal = null;
+             if (mounted) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                   if(mounted) Provider.of<CvProvider>(context, listen: false).clearSelection();
+                });
+             }
          }
+      } else {
+        newSelectedCvDataLocal = null;
+        print("MyCvsScreen: Provider'da seçili CV yok.");
       }
 
-      if (mounted) { setState(() { _cvDocs = newCvDocs; _selectedCvData = newSelectedCvData; _isLoading = false; }); }
+      if (mounted) {
+        setState(() {
+          _cvDocs = newCvDocs;
+          _selectedCvData = newSelectedCvDataLocal;
+          _selectedCvId = currentSelectedCvIdFromProvider; 
+          _isLoading = false;
+        });
+      }
     } catch (e, s) {
        print("MyCvsScreen yüklenirken HATA: $e");
        print(s);
@@ -100,108 +156,182 @@ class _MyCvsScreenState extends State<MyCvsScreen> {
     if (_userId == null || !mounted) return;
      final bool? confirmDelete = await showDialog<bool>(
        context: context,
-       builder: (context) => AlertDialog( title: const Text('CV\'yi Sil'), content: Text('"${(doc.data() as Map<String,dynamic>?)?['cvName'] ?? 'Bu CV'}" silinecek. Emin misiniz?'), actions: [ TextButton(onPressed: ()=>Navigator.pop(context, false), child: const Text('İptal')), TextButton(onPressed: ()=>Navigator.pop(context, true), style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text('Sil')) ] )
+       builder: (context) => AlertDialog(
+         title: Text('CV\'yi Sil', style: Theme.of(context).dialogTheme.titleTextStyle),
+         content: Text('"${(doc.data() as Map<String,dynamic>?)?['cvName'] ?? 'Bu CV'}" silinecek. Emin misiniz?', style: Theme.of(context).dialogTheme.contentTextStyle),
+         actions: [
+           TextButton(onPressed: ()=>Navigator.pop(context, false), child: const Text('İptal')),
+           TextButton(onPressed: ()=>Navigator.pop(context, true), style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error), child: const Text('Sil'))
+          ]
+        )
      );
      if (confirmDelete != true) return;
 
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     try {
        await _firestore.collection('users').doc(_userId!).collection('cvs').doc(doc.id).delete();
-       if (context.mounted && Provider.of<CvProvider>(context, listen: false).selectedCvId == doc.id) { Provider.of<CvProvider>(context, listen: false).clearSelection(); }
-       await _loadCvs(); // Silme sonrası listeyi yenile
+       if (context.mounted && Provider.of<CvProvider>(context, listen: false).selectedCvId == doc.id) {
+          Provider.of<CvProvider>(context, listen: false).clearSelection();
+       }
+       await _loadCvs(); 
        if(mounted){ _showInfoSnackBar('CV silindi.'); }
     } catch (e) { print("CV silinirken Hata: $e"); if (mounted) { _showErrorSnackBar('CV silinirken hata.'); } }
     finally { if (mounted) { setState(() => _isLoading = false); } }
   }
 
-  void _selectCv(String cvId, String cvName) { Provider.of<CvProvider>(context, listen: false).selectCv(cvId, cvName); }
-  void _showSnackBar(String message, {Color backgroundColor = Colors.grey}) { if (!mounted) return; ScaffoldMessenger.of(context).removeCurrentSnackBar(); ScaffoldMessenger.of(context).showSnackBar( SnackBar(content: Text(message), backgroundColor: backgroundColor, duration: const Duration(seconds: 2)) ); }
-  void _showErrorSnackBar(String message) { _showSnackBar(message, backgroundColor: Theme.of(context).colorScheme.error); }
-  void _showSuccessSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.green); }
-  void _showInfoSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.orangeAccent); }
+  void _selectCv(String cvId, String cvName) {
+    print("MyCvsScreen: _selectCv çağrıldı. ID: $cvId, Name: $cvName");
+    Provider.of<CvProvider>(context, listen: false).selectCv(cvId, cvName);
+  }
 
-  // --- _buildKpiCard FONKSİYON GÖVDESİ EKLENDİ ---
-  Widget _buildKpiCard(String title, String value, IconData icon, Color iconColor) {
-     return Card(
-        elevation: 1,
-        shape: Theme.of(context).cardTheme.shape ?? RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), // Tema'dan gelen şekil
-        color: Theme.of(context).cardTheme.color, // Tema'dan gelen renk
+  void _showSnackBar(String message, {Color backgroundColor = Colors.grey}) { 
+    if (!mounted) return; 
+    ScaffoldMessenger.of(context).removeCurrentSnackBar(); 
+    ScaffoldMessenger.of(context).showSnackBar( 
+      SnackBar(
+        content: Text(message), 
+        backgroundColor: backgroundColor, 
+        duration: const Duration(seconds: 2)
+      ) 
+    ); 
+  }
+  void _showErrorSnackBar(String message) { _showSnackBar(message, backgroundColor: Theme.of(context).colorScheme.error); }
+  void _showSuccessSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.green.shade600); }
+  void _showInfoSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.orangeAccent.shade400); }
+
+  Widget _buildKpiCard(String title, String value, IconData icon, {Color? specificIconColor}) {
+    final theme = Theme.of(context);
+    return Card(
         child: Padding(
            padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
            child: Column(
-             mainAxisAlignment: MainAxisAlignment.center, // Ortala
+             mainAxisAlignment: MainAxisAlignment.center,
              children: [
-               Icon(icon, size: 28, color: iconColor),
+               Icon(icon, size: 28, color: specificIconColor ?? theme.colorScheme.primary),
                const SizedBox(height: 8),
-               Text(value, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+               Text(value, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                const SizedBox(height: 4),
-               Text(title, style: GoogleFonts.poppins(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)), textAlign: TextAlign.center),
+               Text(title, style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
              ],
            ),
         ),
      );
   }
-  // --- ---
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final selectedCvIdFromProvider = context.watch<CvProvider>().selectedCvId;
     final String aiScore = _selectedCvData?['aiScore'] as String? ?? '-';
-    final Color primaryColor = Theme.of(context).primaryColor;
-    final Color onSurfaceColor = Theme.of(context).colorScheme.onSurface;
-    final Color secondaryTextColor = onSurfaceColor.withOpacity(0.7);
+
+    print("MyCvsScreen Build: isLoading: $_isLoading, _selectedCvId (lokal): $_selectedCvId, selectedCvIdFromProvider: $selectedCvIdFromProvider");
+    print("MyCvsScreen Build: _selectedCvData: ${_selectedCvData?['cvName']}");
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: RefreshIndicator(
          onRefresh: _loadCvs,
-         color: primaryColor,
-         backgroundColor: Theme.of(context).cardTheme.color,
+         color: theme.colorScheme.primary,
+         backgroundColor: theme.cardTheme.color ?? theme.colorScheme.surface,
          child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                 padding: const EdgeInsets.all(16.0),
-                 children: [
-                    // --- KPI Kartları Çağrıları DOLDURULDU ---
-                    Row( children: [
-                       Expanded( child: _buildKpiCard( 'AI Skoru\n(Seçili)', aiScore, Icons.star_border_rounded, primaryColor ) ),
-                       const SizedBox(width: 12),
-                       Expanded( child: _buildKpiCard( 'Toplam CV', _cvDocs.length.toString(), Icons.description_outlined, Colors.green.shade400 ) ),
-                       const SizedBox(width: 12),
-                       Expanded( child: _buildKpiCard( 'Diğer Stat\n(Yakında)', 'N/A', Icons.analytics_outlined, Colors.orange.shade400 ) )
-                    ]),
-                    // --- ---
-                    const SizedBox(height: 24),
-                    Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text( "CV Belgelerim", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: onSurfaceColor) ), TextButton( onPressed: _loadCvs, child: const Text("Yenile") ) ] ),
-                    const SizedBox(height: 8),
-                    if (_cvDocs.isEmpty) const Padding( padding: EdgeInsets.symmetric(vertical: 40.0), child: Center(child: Text("Henüz CV oluşturulmamış.\n '+' butonuna basarak başlayın.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey))) )
-                    else
-                      ListView.builder(
-                        shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _cvDocs.length,
-                        itemBuilder: (context, index) {
-                          final cvDoc = _cvDocs[index];
-                          final cv = cvDoc.data() as Map<String, dynamic>? ?? {};
-                          String cvName = cv['cvName'] ?? 'İsimsiz CV';
-                          String lastUpdated = 'Bilinmiyor';
-                          if (cv['lastUpdated'] is Timestamp) { lastUpdated = DateFormat('dd/MM/yy HH:mm').format((cv['lastUpdated'] as Timestamp).toDate()); }
-                          bool isSelected = cvDoc.id == selectedCvIdFromProvider;
-                          return Card(
-                             color: isSelected ? primaryColor.withOpacity(0.15) : Theme.of(context).cardTheme.color, margin: const EdgeInsets.symmetric(vertical: 5.0), elevation: isSelected ? 2 : 1,
-                             shape: RoundedRectangleBorder( borderRadius: BorderRadius.circular(10), side: isSelected ? BorderSide(color: primaryColor, width: 1.5) : BorderSide(color: Colors.grey.shade800) ),
-                             child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-                                leading: Icon(Icons.article_outlined, size: 28, color: isSelected ? primaryColor : secondaryTextColor),
-                                title: Text( cvName, style: GoogleFonts.poppins(fontWeight: isSelected ? FontWeight.bold : FontWeight.w500, fontSize: 15, color: onSurfaceColor) ),
-                                subtitle: Text('Güncelleme: $lastUpdated', style: GoogleFonts.poppins(fontSize: 11, color: secondaryTextColor)),
-                                trailing: IconButton( icon: Icon(Icons.delete_outline, size: 20, color: secondaryTextColor), tooltip: 'Sil', onPressed: () => _deleteCv(cvDoc) ),
-                                onTap: () => _selectCv(cvDoc.id, cvName),
-                             ),
-                          );
-                        },
+            : AnimationLimiter(
+                child: ListView(
+                   padding: const EdgeInsets.all(16.0),
+                   children: [
+                      Row( children: [
+                         Expanded( child: _buildKpiCard( 'AI Skoru\n(Seçili)', (_selectedCvId == null || _selectedCvData == null) ? "-" : aiScore, Icons.star_border_rounded, specificIconColor: theme.colorScheme.primary ) ),
+                         const SizedBox(width: 12),
+                         Expanded( child: _buildKpiCard( 'Toplam CV', _cvDocs.length.toString(), Icons.description_outlined, specificIconColor: Colors.green.shade400 ) ),
+                         const SizedBox(width: 12),
+                         Expanded( child: _buildKpiCard( 'Diğer Stat\n(Yakında)', 'N/A', Icons.analytics_outlined, specificIconColor: Colors.orange.shade400 ) )
+                      ]),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text( "CV Belgelerim", style: theme.textTheme.titleLarge),
+                          TextButton( onPressed: _loadCvs, child: Text("Yenile", style: TextStyle(color: theme.colorScheme.primary)) )
+                        ]
                       ),
-                     const SizedBox(height: 80),
-                 ],
+                      const SizedBox(height: 8),
+                      if (_cvDocs.isEmpty && !_isLoading)
+                         Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 40.0),
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.folder_off_outlined, size: 50, color: theme.colorScheme.onSurfaceVariant),
+                                  const SizedBox(height: 12),
+                                  Text("Henüz CV oluşturulmamış.", style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                                  const SizedBox(height: 4),
+                                  Text("Yeni bir CV oluşturmak için aşağıdaki '+' butonunu kullanın.", textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                                ],
+                              )
+                            )
+                         )
+                      else
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _cvDocs.length,
+                          itemBuilder: (context, index) {
+                            final cvDoc = _cvDocs[index];
+                            final cv = cvDoc.data() as Map<String, dynamic>? ?? {};
+                            String cvName = cv['cvName'] ?? 'İsimsiz CV';
+                            String lastUpdated = 'Bilinmiyor';
+                            if (cv['lastUpdated'] is Timestamp) { lastUpdated = DateFormat('dd/MM/yy HH:mm', 'tr_TR').format((cv['lastUpdated'] as Timestamp).toDate().toLocal()); }
+                            else if (cv['createdAt'] is Timestamp) { lastUpdated = DateFormat('dd/MM/yy HH:mm', 'tr_TR').format((cv['createdAt'] as Timestamp).toDate().toLocal()); }
+
+                            bool isSelected = cvDoc.id == _selectedCvId;
+
+                            return AnimationConfiguration.staggeredList(
+                              position: index,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: Card(
+                                     color: isSelected ? theme.colorScheme.primary.withOpacity(0.15) : theme.cardTheme.color,
+                                     margin: theme.cardTheme.margin, 
+                                     elevation: isSelected ? 3 : theme.cardTheme.elevation,
+                                     shape: isSelected
+                                        ? RoundedRectangleBorder( borderRadius: BorderRadius.circular(10), side: BorderSide(color: theme.colorScheme.primary, width: 1.5))
+                                        : theme.cardTheme.shape, 
+                                     child: ListTile(
+                                        contentPadding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
+                                        leading: Icon(
+                                          Icons.article_outlined,
+                                          size: 28,
+                                          color: isSelected ? theme.colorScheme.primary : theme.listTileTheme.iconColor
+                                        ),
+                                        title: Text(
+                                          cvName,
+                                          style: (isSelected
+                                            ? theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, fontSize: 15)
+                                            : theme.textTheme.titleSmall?.copyWith(fontSize: 15))
+                                        ),
+                                        subtitle: Text(
+                                          'Güncelleme: $lastUpdated',
+                                          style: theme.listTileTheme.subtitleTextStyle
+                                        ),
+                                        trailing: IconButton(
+                                          icon: Icon(Icons.delete_outline, size: 22, color: theme.colorScheme.onSurfaceVariant),
+                                          tooltip: 'Sil',
+                                          onPressed: () => _deleteCv(cvDoc)
+                                        ),
+                                        onTap: () => _selectCv(cvDoc.id, cvName), 
+                                     ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                       const SizedBox(height: 80),
+                   ],
+                ),
               ),
        ),
     );

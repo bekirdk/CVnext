@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart'; // ChangeNotifier için
+import 'package:flutter/foundation.dart';
 
 class CvProvider with ChangeNotifier {
   String? _selectedCvId;
@@ -7,21 +7,27 @@ class CvProvider with ChangeNotifier {
   String? get selectedCvId => _selectedCvId;
   String? get selectedCvName => _selectedCvName;
 
-  // Yeni bir CV seçildiğinde çağrılacak fonksiyon
   void selectCv(String cvId, String cvName) {
-    if (_selectedCvId != cvId) { // Sadece farklı bir CV seçilirse güncelle
+    // Sadece farklı bir CV seçilirse veya mevcut seçim null ise güncelle
+    if (_selectedCvId != cvId || _selectedCvName != cvName) { // Koşulu biraz değiştirdim
       _selectedCvId = cvId;
       _selectedCvName = cvName;
       print('CvProvider: Selected CV -> ID: $cvId, Name: $cvName');
-      notifyListeners(); // Dinleyen widget'ları bilgilendir
+      notifyListeners();
+    } else if (_selectedCvId == cvId && _selectedCvName == cvName) {
+      // Eğer zaten seçili olan CV'ye tekrar tıklanırsa bir şey yapma veya seçimi kaldır (isteğe bağlı)
+      print('CvProvider: CV $cvId is already selected.');
+      // İsterseniz burada seçimi kaldırma mantığı eklenebilir:
+      // clearSelection();
     }
   }
 
-  // Seçimi temizle (örn: kullanıcı çıkış yaptığında)
   void clearSelection() {
-    _selectedCvId = null;
-    _selectedCvName = null;
-     print('CvProvider: Selection cleared.');
-    notifyListeners();
+    if (_selectedCvId != null || _selectedCvName != null) { // Sadece bir seçim varsa temizle
+      _selectedCvId = null;
+      _selectedCvName = null;
+      print('CvProvider: Selection cleared.');
+      notifyListeners();
+    }
   }
 }

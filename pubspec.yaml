@@ -1,45 +1,46 @@
 name: yeni_cv_uygulamasi
 description: "An AI-powered CV builder and editor."
-publish_to: "none"
+publish_to: "none" # Remove this line if you want to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: ">=3.0.0 <4.0.0" # SDK versiyonunuzu kontrol edin, bu güncel bir örnektir
 
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations: # Yerelleştirme için eklendi
+    sdk: flutter # Yerelleştirme için eklendi
 
   cupertino_icons: ^1.0.6
-  google_fonts: ^6.1.0
-  provider: ^6.1.1
-  firebase_core: ^2.27.0
+  google_fonts: ^6.1.0 # Son versiyonu kontrol edin (Mayıs 2025 itibariyle bu güncel)
+  provider: ^6.1.1 # Son versiyonu kontrol edin
+  firebase_core: ^2.27.0 # Son versiyonları Firebase dokümanlarından kontrol edin
   firebase_auth: ^4.17.8
   cloud_firestore: ^4.15.8
-  http: ^1.2.0
+  http: ^1.2.0 # Son versiyonu kontrol edin
   flutter_staggered_animations: ^1.1.1
-  google_generative_ai: ^0.4.1
-  pdf: ^3.10.8
-  printing: ^5.12.0
-  path_provider: ^2.1.3
-  open_filex: ^4.4.0
-  intl: ^0.19.0
+  google_generative_ai: ^0.4.1 # Son versiyonu kontrol edin
+  pdf: ^3.10.8 # Son versiyonu kontrol edin
+  printing: ^5.12.0 # Son versiyonu kontrol edin
+  path_provider: ^2.1.3 # Son versiyonu kontrol edin
+  open_filex: ^4.4.0 # Son versiyonu kontrol edin
+  intl: ^0.19.0 # Tarih formatlama ve yerelleştirme için (Son versiyonu kontrol edin)
   collection: ^1.18.0
-  # Yeni eklenen Navigasyon Bar paketi:
-  animated_bottom_navigation_bar: ^1.3.3 # Sürümü kontrol et (pub.dev)
+  animated_bottom_navigation_bar: ^1.3.3 # Mevcut paketiniz
 
-  # Yorumdaki Kullanılmayanlar:
+  # Kullanılmayanları temizleyebilirsiniz:
   # flutter_pdfview: ^1.3.2
   # file_picker: ^6.1.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-  flutter_lints: ^3.0.1
+  flutter_lints: ^3.0.1 # Son versiyonu kontrol edin
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+    # - assets/fonts/ # Eğer özel fontlarınız varsa
