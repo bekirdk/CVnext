@@ -1,11 +1,12 @@
-import 'dart:typed_data'; // PDF için
+// lib/screens/home_screen.dart
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:animated_bottom_navigation_bar/animated_bottom_navigation_bar.dart'; // Paket importu
+import 'package:animated_bottom_navigation_bar/animated_bottom_navigation_bar.dart';
 
 // Ekran Importları
 import 'package:yeni_cv_uygulamasi/screens/main_tabs/my_cvs_screen.dart';
@@ -24,17 +25,17 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _selectedIndex = 0;
   bool _isPdfLoading = false;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   final iconList = <IconData>[
-    Icons.dashboard_outlined,
-    Icons.edit_outlined,
-    Icons.auto_awesome_outlined,
-    Icons.person_outlined,
+    Icons.space_dashboard_rounded, 
+    Icons.edit_note_rounded,      
+    Icons.flare_rounded, 
+    Icons.person_rounded,
   ];
 
   static const List<Widget> _screens = <Widget>[
@@ -43,28 +44,27 @@ class _HomeScreenState extends State<HomeScreen> {
     AiReviewScreen(),
     ProfileScreen(),
   ];
-
+  
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
   }
 
-  String _getTitleForIndex(int index){
+  String _getTitleForIndex(int index) {
     switch (index) {
       case 0: return 'Gösterge Paneli';
       case 1: return 'CV Düzenle';
-      case 2: return 'AI İnceleme';
+      case 2: return 'AI Araçları';
       case 3: return 'Profil';
-      default: return 'AI CV Builder';
+      default: return 'CVNext';
     }
   }
 
-  // --- Diğer Fonksiyonlar (Değişiklik Yok) ---
   Future<void> _createNewCv() async {
     final String? userId = _auth.currentUser?.uid;
     if (userId == null || !mounted) { _showErrorSnackBar('Önce giriş yapmalısınız.'); return; }
-    String defaultCvName = "Yeni CV - ${DateFormat('dd/MM/yy HH:mm').format(DateTime.now())}";
+    String defaultCvName = "Yeni CV - ${DateFormat('dd/MM/yy HH:mm','tr_TR').format(DateTime.now())}";
     final TextEditingController nameController = TextEditingController(text: defaultCvName);
     final String? chosenName = await showDialog<String>( context: context, builder: (context) => AlertDialog( title: const Text("Yeni CV Adı"), content: TextField( controller: nameController, decoration: const InputDecoration(hintText: "CV için bir isim girin"), autofocus: true ), actions: [ TextButton(onPressed: ()=> Navigator.pop(context), child: const Text("İptal")), TextButton(onPressed: ()=> Navigator.pop(context, nameController.text.trim()), child: const Text("Oluştur")) ] ) );
     if (chosenName == null || chosenName.isEmpty) return;
@@ -92,75 +92,93 @@ class _HomeScreenState extends State<HomeScreen> {
      else { _showErrorSnackBar('PDF oluşturulamadı (Veri eksik veya hata oluştu).'); }
    }
 
-   void _showSnackBar(String message, {Color backgroundColor = Colors.grey}) { if (!mounted) return; ScaffoldMessenger.of(context).removeCurrentSnackBar(); ScaffoldMessenger.of(context).showSnackBar( SnackBar(content: Text(message), backgroundColor: backgroundColor, duration: const Duration(seconds: 2)) ); }
-   void _showErrorSnackBar(String message) { _showSnackBar(message, backgroundColor: Theme.of(context).colorScheme.error); }
-   void _showSuccessSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.green); }
-   void _showInfoSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.orangeAccent); }
-  // --- Diğer Fonksiyonlar Sonu ---
+   void _showSnackBar(String message, {Color backgroundColor = Colors.grey}) { if (!mounted) return; ScaffoldMessenger.of(context).removeCurrentSnackBar(); ScaffoldMessenger.of(context).showSnackBar( SnackBar(content: Text(message, style: TextStyle(color: Theme.of(context).colorScheme.onInverseSurface)), backgroundColor: backgroundColor, duration: const Duration(seconds: 2)) ); }
+   void _showErrorSnackBar(String message) { _showSnackBar(message, backgroundColor: Theme.of(context).colorScheme.errorContainer.withOpacity(0.9)); }
+   void _showSuccessSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.green.shade700.withOpacity(0.9)); }
+   void _showInfoSnackBar(String message) { _showSnackBar(message, backgroundColor: Colors.blueGrey.shade700.withOpacity(0.9)); }
 
 
   @override
   Widget build(BuildContext context) {
-    // Tema renklerini alalım
-    final Color primaryColor = Theme.of(context).primaryColor;
-    final Color activeColor = primaryColor;
-    final Color inactiveColor = Theme.of(context).bottomNavigationBarTheme.unselectedItemColor ?? Colors.grey.shade500;
-    final Color fabBackgroundColor = primaryColor;
-    final Color barBackgroundColor = Theme.of(context).bottomNavigationBarTheme.backgroundColor ?? Theme.of(context).colorScheme.surface;
-    final Color fabIconColor = Theme.of(context).colorScheme.onPrimary;
-
+    final theme = Theme.of(context);
+    final Color iconWellBg = theme.colorScheme.tertiaryContainer; 
+    final Color activeIconInWellColor = theme.colorScheme.onTertiaryContainer; 
+    final Color inactiveIconColor = theme.bottomNavigationBarTheme.unselectedItemColor ?? theme.colorScheme.onSurfaceVariant.withOpacity(0.7);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_getTitleForIndex(_selectedIndex)),
         actions: [
            _isPdfLoading
-           ? const Padding( padding: EdgeInsets.symmetric(horizontal: 16.0), child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))) )
-           : IconButton( icon: const Icon(Icons.picture_as_pdf_outlined), tooltip: 'PDF Olarak Dışa Aktar/Önizle', onPressed: _exportPdf ),
+           ? Padding( padding: const EdgeInsets.all(16.0), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: theme.appBarTheme.actionsIconTheme?.color ?? theme.colorScheme.primary)))
+           : IconButton( icon: const Icon(Icons.picture_as_pdf_outlined), tooltip: 'PDF Olarak Dışa Aktar', onPressed: _exportPdf ),
            Builder( builder: (context) => IconButton( icon: const Icon(Icons.menu_rounded), tooltip: 'Menü', onPressed: () => Scaffold.of(context).openEndDrawer() ) ),
         ],
       ),
       endDrawer: const AppDrawer(),
-      body: Center(
-        child: _screens.elementAt(_selectedIndex),
+      body: IndexedStack( 
+        index: _selectedIndex,
+        children: _screens,
       ),
 
       floatingActionButton: FloatingActionButton(
-        shape: const CircleBorder(),
-        backgroundColor: fabBackgroundColor,
-        foregroundColor: fabIconColor,
         onPressed: _createNewCv,
         tooltip: 'Yeni CV Oluştur',
-        elevation: 2.0,
-        child: const Icon(Icons.add),
+        // FAB Stili temadan geliyor (main.dart içinde iconWellBackground ve primaryAppBlue olarak ayarlandı)
+        // backgroundColor: iconWellBg, 
+        // foregroundColor: activeIconInWellColor,
+        // shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: const Icon(Icons.add_rounded, size: 28), // Boyut ayarı
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
 
-      // *** AnimatedBottomNavigationBar (Hata Düzeltildi) ***
-      bottomNavigationBar: AnimatedBottomNavigationBar(
-        icons: iconList,
+      bottomNavigationBar: AnimatedBottomNavigationBar.builder(
+        itemCount: iconList.length,
+        tabBuilder: (int index, bool isActive) {
+          final Color iconColor = isActive ? activeIconInWellColor : inactiveIconColor;
+          final double iconSize = isActive ? 26 : 22; 
+          
+          return Container(
+            width: MediaQuery.of(context).size.width / (iconList.length + 1.2), // Genişlik ayarı (FAB için daha fazla yer)
+            height: 56, // İkon ve yuvası için toplam yükseklik
+            alignment: Alignment.center,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOutSine,
+              width: isActive ? 46 : 40,  // Yuva genişliği
+              height: isActive ? 46 : 40, // Yuva yüksekliği
+              decoration: BoxDecoration(
+                color: isActive ? iconWellBg : Colors.transparent,
+                shape: BoxShape.circle, // Tam daire
+                boxShadow: isActive ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2)
+                  )
+                ] : null,
+              ),
+              child: Icon(
+                iconList[index],
+                size: iconSize,
+                color: iconColor,
+              ),
+            ),
+          );
+        },
         activeIndex: _selectedIndex,
         gapLocation: GapLocation.center,
-        notchSmoothness: NotchSmoothness.softEdge,
-        leftCornerRadius: 32,
-        rightCornerRadius: 32,
+        notchSmoothness: NotchSmoothness.softEdge, 
+        leftCornerRadius: 0, 
+        rightCornerRadius: 0,
         onTap: _onItemTapped,
-
-        // Stil Ayarları
-        backgroundColor: barBackgroundColor,
-        activeColor: activeColor,
-        inactiveColor: inactiveColor,
-        iconSize: 24,
-        // height: 60, // Opsiyonel
-
-        // Gölge
-        shadow: BoxShadow(
-          color: Colors.black.withOpacity(0.15),
-          blurRadius: 8,
+        backgroundColor: theme.bottomNavigationBarTheme.backgroundColor, 
+        shadow: theme.bottomNavigationBarTheme.elevation == 0 ? null : BoxShadow( // Temadan gölge veya özel
+          color: Colors.black.withOpacity(0.1),
+          offset: const Offset(0, -1),
+          blurRadius: 2,
         ),
-
-        // !! KALDIRILDI: animationDuration: const Duration(milliseconds: 300),
-        // !! KALDIRILDI: animationCurve: Curves.easeInOut,
+        height: 60, // Barın genel yüksekliği
       ),
     );
   }
